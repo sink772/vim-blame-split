@@ -24,6 +24,7 @@ ln -s ~/work/vim-blame-split ~/.vim/pack/plugins/start/vim-blame-split
 ## Usage
 
 - `:BlameSplit` or `<leader>gb` toggles the blame window (works from either window).
+- `<CR>` on a blame line shows its commit (`git show`) in a bottom split; `q` closes it.
 - Re-toggle to refresh after edits that add or remove lines.
 - `:q` in the source window closes the blame window too.
 - While open, `wrap` and folds are disabled in the source window and restored on close.

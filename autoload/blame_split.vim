@@ -2,6 +2,7 @@
 
 " Number of age colors; BlameSplitAge0 is the newest.
 let s:levels = 6
+let s:commit_bufnr = -1
 
 augroup BlameSplit
   autocmd!
@@ -80,6 +81,9 @@ function! s:open() abort
   endfor
 
   let b:blame_split_source = src_buf
+  let b:blame_split_dir = fnamemodify(file, ':h')
+  let b:blame_split_hashes = map(copy(entries), 'v:val.hash')
+  nnoremap <buffer> <silent> <CR> :<C-u>call <SID>show_commit()<CR>
   execute printf('autocmd BlameSplit BufWipeout <buffer> call s:restore(%d, %d, %s)', src_win, src_buf, string(saved))
   " Close blame before :q in the source, so quitting the last file window exits Vim.
   execute printf('autocmd BlameSplit QuitPre <buffer=%d> if win_getid() == %d | silent! bwipeout %d | endif',
@@ -92,6 +96,55 @@ function! s:open() abort
   call win_gotoid(src_win)
   let b:blame_split_bufnr = blame_buf
   syncbind
+endfunction
+
+" Show the commit of the blame line under the cursor in a bottom split.
+function! s:show_commit() abort
+  let hash = get(b:blame_split_hashes, line('.') - 1, '')
+  if empty(hash) || hash =~# '^0\+$'
+    echo 'BlameSplit: not committed yet'
+    return
+  endif
+  let out = systemlist(printf('git -C %s show --stat --patch %s', shellescape(b:blame_split_dir), hash))
+  if v:shell_error
+    return s:error(join(out, ' '))
+  endif
+  let winid = bufwinid(s:commit_bufnr)
+  if winid != -1
+    call win_gotoid(winid)
+    setlocal modifiable
+    silent %delete _
+  else
+    let blame_win = win_getid()
+    let top = line('w0')
+    botright new
+    setlocal buftype=nofile bufhidden=wipe nobuflisted noswapfile
+    " Window options are inherited from the blame window; don't join its scroll binding.
+    setlocal noscrollbind nocursorbind nowinfixwidth filetype=git
+    nnoremap <buffer> <silent> q :bwipeout<CR>
+    let s:commit_bufnr = bufnr('%')
+    call s:sync(blame_win, top)
+    execute printf('autocmd BlameSplit WinClosed %d ++once call timer_start(0, {-> s:sync(%d, 0)})',
+          \ win_getid(), blame_win)
+  endif
+  call setline(1, out)
+  setlocal nomodifiable
+endfunction
+
+" Resizing the blame window rescrolls it (or the source) on its own, since scrollbind does
+" not sync on resize. Restore blame's topline (0: keep current), then align the source to it.
+function! s:sync(blame_win, top) abort
+  let cur = win_getid()
+  if !win_gotoid(a:blame_win)
+    return
+  endif
+  if a:top > 0
+    call winrestview({'topline': a:top})
+  endif
+  " line('w0') scrolls the topline so the cursor is visible in the resized window.
+  call winrestview({'topline': line('w0')})
+  syncbind
+  call win_gotoid(cur)
 endfunction
 
 function! s:restore(src_win, src_buf, saved) abort
